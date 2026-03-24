@@ -1,0 +1,53 @@
+server:
+  port: 8082
+
+spring:
+  application:
+    name: example-service2
+
+# ─── Keycloak — only trust gateway-realm ───────────────────────────────────────
+# example-service2 is an INTERNAL service.
+# It does NOT accept tokens directly from example-service-realm.
+# The only valid tokens are those exchanged by the API Gateway (gateway-realm).
+keycloak:
+  issuers:
+    - ${KEYCLOAK_GATEWAY_ISSUER:http://localhost:8180/realms/gateway-realm}
+
+# ─── Eureka ────────────────────────────────────────────────────────────────────
+eureka:
+  client:
+    enabled: ${EUREKA_ENABLED:true}
+    service-url:
+      defaultZone: ${EUREKA_SERVER_URL:http://localhost:8761/eureka/}
+    registry-fetch-interval-seconds: 5
+  instance:
+    prefer-ip-address: true
+    hostname: ${EUREKA_INSTANCE_HOSTNAME:localhost}
+    lease-renewal-interval-in-seconds: 10
+    lease-expiration-duration-in-seconds: 30
+    instance-id: ${spring.application.name}:${random.value}
+
+# ─── Actuator ──────────────────────────────────────────────────────────────────
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: always
+
+# ─── OpenAPI / Swagger ─────────────────────────────────────────────────────────
+springdoc:
+  api-docs:
+    path: /api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    enabled: true
+
+# ─── Logging ───────────────────────────────────────────────────────────────────
+logging:
+  level:
+    root: INFO
+    br.com.lrs.example2: DEBUG
+    org.springframework.security: INFO

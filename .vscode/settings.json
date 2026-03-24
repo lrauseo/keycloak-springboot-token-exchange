@@ -1,0 +1,25 @@
+{
+    "java.jdt.ls.vmargs": "-XX:+UseParallelGC -XX:GCTimeRatio=4 -XX:AdaptiveSizePolicyWeight=90 -Dsun.zip.disableMemoryMapping=true -Xmx4G -Xms100m -Xlog:disable",
+    // Configuração do JDK para o Gradle usar ao buildar o projeto
+    // SUBSTITUA o caminho abaixo pelo caminho do seu JDK 21 ou 21
+    "java.import.gradle.java.home": "C:\\zulu-21",
+    
+    // Configuração do JDK para o Language Server do Java no VS Code
+    "java.jdt.ls.java.home": "C:\\zulu-21",
+    
+    // Lista de runtimes disponíveis (opcional, mas recomendado)
+    "java.configuration.runtimes": [
+        {
+            "name": "JavaSE-21",
+            "path": "C:\\zulu-21",
+            "default": true
+        }
+    ],
+
+    // Força os terminais integrados do VS Code a usarem este JDK
+    "terminal.integrated.env.windows": {
+        "JAVA_HOME": "C:\\zulu-21",
+        "PATH": "C:\\zulu-21\\bin;${env:PATH}"
+    },
+    "java.configuration.updateBuildConfiguration": "interactive"
+}

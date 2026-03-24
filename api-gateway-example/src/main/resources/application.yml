@@ -1,0 +1,136 @@
+server:
+  port: 8081
+
+spring:
+  application:
+    name: api-gateway-example
+
+  cloud:
+    gateway:
+      # Automatically creates routes for Eureka-registered services
+      discovery:
+        locator:
+          enabled: true
+          lower-case-service-id: true
+
+      routes:
+        # ─── Public routes ────────────────────────────────────────────────────
+        # No token exchange — anyone can call these
+        - id: example-service-public
+          uri: lb://example-service
+          predicates:
+            - Path=/api/public/**
+          filters:
+            - RemoveRequestHeader=Cookie
+
+        # ─── Protected routes ─────────────────────────────────────────────────
+        # Token exchange applied:
+        #   1. Incoming request carries an example-service-realm token
+        #   2. Gateway exchanges it for a gateway-realm token
+        #   3. Downstream example-service receives the gateway-realm token
+        - id: example-service-protected
+          uri: lb://example-service
+          predicates:
+            - Path=/api/protected/**
+          filters:
+            - TokenExchange                   # <-- custom filter (see TokenExchangeGatewayFilterFactory)
+            - RemoveRequestHeader=Cookie
+            - name: RequestRateLimiter
+              args:
+                '[redis-rate-limiter.replenishRate]': 10
+                '[redis-rate-limiter.burstCapacity]': 20
+                '[redis-rate-limiter.requestedTokens]': 1
+
+        # ─── Direct access to example-service2 via gateway ────────────────────
+        # Token exchange still applied — clients send example-service-realm token,
+        # gateway exchanges it, service2 receives a gateway-realm token.
+        # StripPrefix removes /api/service2 so /api/service2/internal/** → /api/internal/**
+        - id: example-service2-direct
+          uri: lb://example-service2
+          predicates:
+            - Path=/api/service2/**
+          filters:
+            - TokenExchange
+            - StripPrefix=1
+            - RemoveRequestHeader=Cookie
+            - name: RequestRateLimiter
+              args:
+                '[redis-rate-limiter.replenishRate]': 10
+                '[redis-rate-limiter.burstCapacity]': 20
+                '[redis-rate-limiter.requestedTokens]': 1
+
+        # ─── Actuator / health passthrough ────────────────────────────────────
+        - id: example-service-actuator
+          uri: lb://example-service
+          predicates:
+            - Path=/example/actuator/**
+          filters:
+            - StripPrefix=1
+            - RemoveRequestHeader=Cookie
+
+      default-filters:
+        - name: Retry
+          args:
+            retries: 3
+            statuses: BAD_GATEWAY,SERVICE_UNAVAILABLE
+            methods: GET
+            backoff:
+              firstBackoff: 50ms
+              maxBackoff: 500ms
+              factor: 2
+              basedOnPreviousValue: false
+
+  # Redis for rate limiting
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      database: 0
+      timeout: 60000
+
+# ─── Eureka client ─────────────────────────────────────────────────────────────
+eureka:
+  client:
+    enabled: ${EUREKA_ENABLED:true}
+    service-url:
+      defaultZone: ${EUREKA_SERVER_URL:http://localhost:8761/eureka/}
+    registry-fetch-interval-seconds: 5
+    instance-info-replication-interval-seconds: 5
+  instance:
+    prefer-ip-address: true
+    hostname: ${EUREKA_INSTANCE_HOSTNAME:localhost}
+    lease-renewal-interval-in-seconds: 10
+    lease-expiration-duration-in-seconds: 30
+    metadata-map:
+      zone: default
+
+# ─── Keycloak Token Exchange configuration ─────────────────────────────────────
+# Controls the TokenExchangeGatewayFilterFactory
+keycloak:
+  token-exchange:
+    enabled: ${TOKEN_EXCHANGE_ENABLED:true}
+    base-url: ${KEYCLOAK_BASE_URL:http://localhost:8180}
+    realm: ${KEYCLOAK_GATEWAY_REALM:gateway-realm}
+    client-id: ${KEYCLOAK_CLIENT_ID:gateway-client}
+    client-secret: ${KEYCLOAK_CLIENT_SECRET:gateway-client-secret}
+
+# ─── Actuator ──────────────────────────────────────────────────────────────────
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,gateway
+  endpoint:
+    health:
+      show-details: always
+    gateway:
+      access: unrestricted
+
+# ─── Logging ───────────────────────────────────────────────────────────────────
+logging:
+  level:
+    root: INFO
+    br.com.lrs.gateway: DEBUG
+    org.springframework.cloud.gateway: INFO
+    org.springframework.cloud.gateway.filter: DEBUG

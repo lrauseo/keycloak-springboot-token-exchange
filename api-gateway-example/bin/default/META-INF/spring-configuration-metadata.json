@@ -1,0 +1,42 @@
+{
+  "groups": [
+    {
+      "name": "keycloak.token-exchange",
+      "type": "br.com.lrs.gateway.config.TokenExchangeProperties",
+      "sourceType": "br.com.lrs.gateway.config.TokenExchangeProperties"
+    }
+  ],
+  "properties": [
+    {
+      "name": "keycloak.token-exchange.base-url",
+      "type": "java.lang.String",
+      "description": "Base URL of the Keycloak server (e.g., http:\/\/keycloak:8080)",
+      "sourceType": "br.com.lrs.gateway.config.TokenExchangeProperties"
+    },
+    {
+      "name": "keycloak.token-exchange.client-id",
+      "type": "java.lang.String",
+      "description": "Client ID with permission to perform token exchange",
+      "sourceType": "br.com.lrs.gateway.config.TokenExchangeProperties"
+    },
+    {
+      "name": "keycloak.token-exchange.client-secret",
+      "type": "java.lang.String",
+      "description": "Client secret for the exchange client",
+      "sourceType": "br.com.lrs.gateway.config.TokenExchangeProperties"
+    },
+    {
+      "name": "keycloak.token-exchange.enabled",
+      "type": "java.lang.Boolean",
+      "description": "Enable or disable the token exchange filter",
+      "sourceType": "br.com.lrs.gateway.config.TokenExchangeProperties"
+    },
+    {
+      "name": "keycloak.token-exchange.realm",
+      "type": "java.lang.String",
+      "description": "The realm where the token exchange happens. The incoming subject token (from example-service-realm) is exchanged for a new access token issued by THIS realm (gateway-realm).",
+      "sourceType": "br.com.lrs.gateway.config.TokenExchangeProperties"
+    }
+  ],
+  "hints": []
+}

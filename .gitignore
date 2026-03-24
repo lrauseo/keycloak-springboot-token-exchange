@@ -7,6 +7,25 @@
 # BlueJ files
 *.ctxt
 
+# Gradle
+.gradle/
+build/
+!**/src/main/**/build/
+!**/src/test/**/build/
+
+# IDE
+.idea/
+*.iml
+*.ipr
+
+# Environment (secrets — never commit!)
+.env
+!.env.example
+
+# OS
+.DS_Store
+Thumbs.db
+
 # Mobile Tools for Java (J2ME)
 .mtj.tmp/
 

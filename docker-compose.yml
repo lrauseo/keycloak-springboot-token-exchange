@@ -1,0 +1,350 @@
+# ============================================================================
+# Docker Compose — Keycloak Token Exchange Example Stack
+# ============================================================================
+#
+# Architecture:
+#
+#   ┌──────────────────────────────────────────────┐
+#   │  Keycloak                                    │
+#   │  • example-service-realm  (user logins)      │
+#   │  • gateway-realm          (token exchange)   │
+#   └──────────────────────────────────────────────┘
+#                        ↓
+#   ┌──────────────────────────────────────────────┐
+#   │  API Gateway (port 8081)                     │
+#   │  • Eureka registration                       │
+#   │  • Rate limiting (Redis)                     │
+#   │  • Token exchange filter                     │
+#   └──────────────────────────────────────────────┘
+#                        ↓
+#   ┌──────────────────────────────────────────────┐
+#   │  Example Service (port 8080)                 │
+#   │  • Accepts tokens from both realms           │
+#   │  • Public + protected endpoints              │
+#   │  • Swagger UI at /swagger-ui.html            │
+#   └──────────────────────────────────────────────┘
+#
+# Quick start:
+#   docker compose up --build
+#
+# ============================================================================
+
+name: token-exchange-example
+
+services:
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # INFRASTRUCTURE
+  # ──────────────────────────────────────────────────────────────────────────
+
+  redis:
+    image: redis:7.2-alpine
+    container_name: ex-redis
+    hostname: redis
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ex-network
+    environment:
+      - TZ=UTC
+    restart: unless-stopped
+
+  # PostgreSQL for Keycloak
+  keycloak-db:
+    image: postgres:15-alpine
+    container_name: ex-keycloak-db
+    hostname: keycloak-db
+    environment:
+      POSTGRES_DB: ${KEYCLOAK_DB_NAME:-keycloak}
+      POSTGRES_USER: ${KEYCLOAK_DB_USER:-keycloak}
+      POSTGRES_PASSWORD: ${KEYCLOAK_DB_PASSWORD:-keycloak-secret}
+      TZ: UTC
+    volumes:
+      - keycloak_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${KEYCLOAK_DB_USER:-keycloak}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ex-network
+    restart: unless-stopped
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # SECURITY — Keycloak
+  # ──────────────────────────────────────────────────────────────────────────
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:23.0.3
+    container_name: ex-keycloak
+    hostname: keycloak
+    environment:
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:-admin}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin-secret}
+
+      # IMPORTANT: token-exchange feature must be enabled explicitly
+      KC_FEATURES: token-exchange
+
+      # Database
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://keycloak-db:5432/${KEYCLOAK_DB_NAME:-keycloak}
+      KC_DB_USERNAME: ${KEYCLOAK_DB_USER:-keycloak}
+      KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:-keycloak-secret}
+
+      # Network
+      KC_HOSTNAME_STRICT: "false"
+      KC_HOSTNAME_STRICT_HTTPS: "false"
+      KC_HTTP_ENABLED: "true"
+      KC_HEALTH_ENABLED: "true"
+      KC_LOG_LEVEL: INFO
+      TZ: UTC
+    command:
+      - start-dev
+    ports:
+      - "${KEYCLOAK_PORT:-8180}:8080"
+    depends_on:
+      keycloak-db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL",
+        "exec 3<>/dev/tcp/127.0.0.1/8080; echo -e 'GET /health/ready HTTP/1.1\r\nhost: localhost\r\nConnection: close\r\n\r\n' >&3; grep 'HTTP/1.1 200' <&3"]
+      interval: 20s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    networks:
+      - ex-network
+    restart: unless-stopped
+
+  # One-shot container that creates realms and clients
+  keycloak-init:
+    build:
+      context: ./keycloak-init
+      dockerfile: Dockerfile
+    container_name: ex-keycloak-init
+    environment:
+      KEYCLOAK_URL: http://keycloak:8080
+      KEYCLOAK_BASE_URL: http://keycloak:8080
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:-admin}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin-secret}
+      EXAMPLE_SERVICE_REALM: ${EXAMPLE_SERVICE_REALM:-example-service-realm}
+      GATEWAY_REALM: ${GATEWAY_REALM:-gateway-realm}
+      EXAMPLE_SERVICE_CLIENT_SECRET: ${EXAMPLE_SERVICE_CLIENT_SECRET:-example-service-secret}
+      GATEWAY_CLIENT_SECRET: ${GATEWAY_CLIENT_SECRET:-gateway-client-secret}
+    depends_on:
+      keycloak:
+        condition: service_healthy
+    networks:
+      - ex-network
+    restart: "no"
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # SERVICE DISCOVERY — Eureka (pre-built image from Docker Hub)
+  # ──────────────────────────────────────────────────────────────────────────
+
+  eureka:
+    image: lrauseo/eureka:jdk21-0.0.1
+    container_name: ex-eureka
+    hostname: eureka
+    ports:
+      - "${EUREKA_PORT:-8761}:8761"
+    environment:
+      EUREKA_INSTANCE_HOSTNAME: eureka
+      EUREKA_ADMIN_PASSWORD: ${EUREKA_ADMIN_PASSWORD:-admin-secret}
+      EUREKA_SELF_PRESERVATION: "false"
+      JAVA_OPTS: >
+        -XX:+UseG1GC
+        -XX:+UseContainerSupport
+        -XX:MaxRAMPercentage=75.0
+        -Djava.security.egd=file:/dev/./urandom
+      TZ: UTC
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8761/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - ex-network
+    restart: unless-stopped
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # API GATEWAY — Spring Cloud Gateway with Token Exchange
+  # ──────────────────────────────────────────────────────────────────────────
+
+  api-gateway-example:
+    build:
+      context: ./api-gateway-example
+      dockerfile: Dockerfile
+    container_name: ex-api-gateway
+    hostname: api-gateway-example
+
+    environment:
+      SERVER_PORT: 8081
+      SPRING_PROFILES_ACTIVE: default
+
+      # Eureka
+      EUREKA_SERVER_URL: http://eureka:8761/eureka/
+      EUREKA_INSTANCE_HOSTNAME: api-gateway-example
+
+      # Redis
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+
+      # Token Exchange → gateway-realm
+      TOKEN_EXCHANGE_ENABLED: "true"
+      KEYCLOAK_BASE_URL: http://keycloak:8080
+      KEYCLOAK_GATEWAY_REALM: ${GATEWAY_REALM:-gateway-realm}
+      KEYCLOAK_CLIENT_ID: gateway-client
+      KEYCLOAK_CLIENT_SECRET: ${GATEWAY_CLIENT_SECRET:-gateway-client-secret}
+
+      TZ: UTC
+
+    ports:
+      - "${GATEWAY_PORT:-8081}:8081"
+
+    depends_on:
+      redis:
+        condition: service_healthy
+      eureka:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+      keycloak-init:
+        condition: service_completed_successfully
+
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider",
+             "http://localhost:8081/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+
+    networks:
+      - ex-network
+    restart: unless-stopped
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # MICROSERVICE — Example Service (multi-realm JWT validation)
+  # ──────────────────────────────────────────────────────────────────────────
+
+  example-service:
+    build:
+      context: ./example-service
+      dockerfile: Dockerfile
+    container_name: ex-example-service
+    hostname: example-service
+
+    environment:
+      SERVER_PORT: 8080
+
+      # Eureka
+      EUREKA_SERVER_URL: http://eureka:8761/eureka/
+      EUREKA_INSTANCE_HOSTNAME: example-service
+
+      # Multi-realm JWT: accept tokens from BOTH realms
+      # - example-service-realm: user's original token (direct login)
+      # - gateway-realm: exchanged token (via API Gateway)
+      KEYCLOAK_PRIMARY_ISSUER: http://keycloak:8080/realms/${EXAMPLE_SERVICE_REALM:-example-service-realm}
+      KEYCLOAK_SECONDARY_ISSUER: http://keycloak:8080/realms/${GATEWAY_REALM:-gateway-realm}
+
+      TZ: UTC
+
+    ports:
+      - "${EXAMPLE_SERVICE_PORT:-8080}:8080"
+
+    depends_on:
+      eureka:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+      keycloak-init:
+        condition: service_completed_successfully
+
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider",
+             "http://localhost:8080/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+
+    networks:
+      - ex-network
+    restart: unless-stopped
+
+# ──────────────────────────────────────────────────────────────────────────────
+  # ──────────────────────────────────────────────────────────────────────────
+  # INTERNAL SERVICE — example-service2
+  # Only accepts gateway-realm tokens (called by example-service, not clients)
+  # Demonstrates: service-to-service JWT propagation + strict internal trust
+  # ──────────────────────────────────────────────────────────────────────────
+
+  example-service2:
+    build:
+      context: ./example-service2
+      dockerfile: Dockerfile
+    container_name: ex-example-service2
+    hostname: example-service2
+
+    environment:
+      SERVER_PORT: 8082
+
+      # Eureka
+      EUREKA_SERVER_URL: http://eureka:8761/eureka/
+      EUREKA_INSTANCE_HOSTNAME: example-service2
+
+      # Only trust gateway-realm — this is a strictly internal service
+      KEYCLOAK_GATEWAY_ISSUER: http://keycloak:8080/realms/${GATEWAY_REALM:-gateway-realm}
+
+      TZ: UTC
+
+    ports:
+      - "${EXAMPLE_SERVICE2_PORT:-8082}:8082"
+
+    depends_on:
+      eureka:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+      keycloak-init:
+        condition: service_completed_successfully
+
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider",
+             "http://localhost:8082/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+
+    networks:
+      - ex-network
+    restart: unless-stopped
+
+# ──────────────────────────────────────────────────────────────────────────────
+# VOLUMES
+# ──────────────────────────────────────────────────────────────────────────────
+
+volumes:
+  redis_data:
+    driver: local
+  keycloak_db_data:
+    driver: local
+
+# ──────────────────────────────────────────────────────────────────────────────
+# NETWORKS
+# ──────────────────────────────────────────────────────────────────────────────
+
+networks:
+  ex-network:
+    driver: bridge

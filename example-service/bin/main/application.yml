@@ -1,0 +1,57 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: example-service
+
+# ─── Keycloak Multi-Realm Configuration ────────────────────────────────────────
+# The service accepts JWT tokens from ALL listed issuers.
+# Add any realm whose tokens should be trusted here.
+#
+# Issuers:
+#   - example-service-realm: tokens obtained by users logging in directly
+#   - gateway-realm: tokens produced by the API Gateway's token exchange
+keycloak:
+  issuers:
+    - ${KEYCLOAK_PRIMARY_ISSUER:http://localhost:8180/realms/example-service-realm}
+    - ${KEYCLOAK_SECONDARY_ISSUER:http://localhost:8180/realms/gateway-realm}
+
+# ─── Eureka Client ─────────────────────────────────────────────────────────────
+eureka:
+  client:
+    enabled: ${EUREKA_ENABLED:true}
+    service-url:
+      defaultZone: ${EUREKA_SERVER_URL:http://localhost:8761/eureka/}
+    registry-fetch-interval-seconds: 5
+  instance:
+    prefer-ip-address: true
+    hostname: ${EUREKA_INSTANCE_HOSTNAME:localhost}
+    lease-renewal-interval-in-seconds: 10
+    lease-expiration-duration-in-seconds: 30
+    instance-id: ${spring.application.name}:${random.value}
+
+# ─── Actuator ──────────────────────────────────────────────────────────────────
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: always
+
+# ─── OpenAPI / Swagger UI ──────────────────────────────────────────────────────
+springdoc:
+  api-docs:
+    path: /api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    enabled: true
+
+# ─── Logging ───────────────────────────────────────────────────────────────────
+logging:
+  level:
+    root: INFO
+    br.com.lrs.example: DEBUG
+    org.springframework.security: INFO

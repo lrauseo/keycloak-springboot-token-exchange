@@ -1,0 +1,224 @@
+### ─── Variables ─────────────────────────────────────────────────────────────
+@keycloak     = http://localhost:8180
+@gateway      = http://localhost:8081
+@service      = http://localhost:8080
+@service2     = http://localhost:8082
+@realm        = example-service-realm
+@clientId     = example-service-client
+@clientSecret = example-service-secret
+
+### ═══════════════════════════════════════════════════════════════════════════
+### 1. PUBLIC ENDPOINTS — No authentication required
+### ═══════════════════════════════════════════════════════════════════════════
+
+### 1a. Public hello (direct to service)
+GET {{service}}/api/public/hello
+
+###
+
+### 1b. Service info (direct to service)
+GET {{service}}/api/public/info
+
+###
+
+### 1c. Public hello via API Gateway
+GET {{gateway}}/api/public/hello
+
+###
+
+### ═══════════════════════════════════════════════════════════════════════════
+### 2. AUTHENTICATION — Get tokens from Keycloak
+### ═══════════════════════════════════════════════════════════════════════════
+
+### 2a. Get user token from example-service-realm
+# @name loginResponse
+POST {{keycloak}}/realms/{{realm}}/protocol/openid-connect/token
+Content-Type: application/x-www-form-urlencoded
+
+username=testuser&password=testpass&grant_type=password&client_id={{clientId}}&client_secret={{clientSecret}}
+
+###
+
+### 2b. Decode the token (paste your token here)
+# @name decodeToken
+# Tip: Use https://jwt.io to inspect the claims, especially:
+#   - "iss" (issuer) → should be http://localhost:8180/realms/example-service-realm
+#   - "preferred_username" → testuser
+
+### ═══════════════════════════════════════════════════════════════════════════
+### 3. DIRECT SERVICE ACCESS — Token from example-service-realm
+### ═══════════════════════════════════════════════════════════════════════════
+# The example-service accepts tokens directly from example-service-realm.
+# Copy the access_token from step 2a and paste below.
+
+@exampleToken = PASTE_ACCESS_TOKEN_HERE
+
+### 3a. Protected hello (direct to service, original realm token)
+GET {{service}}/api/protected/hello
+Authorization: Bearer {{exampleToken}}
+
+###
+
+### 3b. Token introspection (see which realm issued the token)
+GET {{service}}/api/protected/token-info
+Authorization: Bearer {{exampleToken}}
+
+###
+
+### ═══════════════════════════════════════════════════════════════════════════
+### 4. VIA API GATEWAY — Token Exchange in action
+### ═══════════════════════════════════════════════════════════════════════════
+# When you send the example-service-realm token through the Gateway:
+#   1. Gateway intercepts the request
+#   2. Gateway calls Keycloak to exchange the token → gateway-realm token
+#   3. Gateway forwards the request with the NEW token
+#   4. example-service receives and validates the gateway-realm token
+#
+# The response from /api/protected/token-info will show:
+#   "issuer": "http://localhost:8180/realms/gateway-realm"  ← exchanged!
+
+### 4a. Protected hello via Gateway (token exchange happens transparently)
+GET {{gateway}}/api/protected/hello
+Authorization: Bearer {{exampleToken}}
+
+###
+
+### 4b. Token info via Gateway (shows the EXCHANGED gateway-realm token)
+GET {{gateway}}/api/protected/token-info
+Authorization: Bearer {{exampleToken}}
+
+###
+
+### ═══════════════════════════════════════════════════════════════════════════
+### 5. MANUAL TOKEN EXCHANGE — See the exchange yourself
+### ═══════════════════════════════════════════════════════════════════════════
+# You can also perform the token exchange manually to see exactly what happens.
+
+### 5a. Exchange example-service-realm token → gateway-realm token
+POST {{keycloak}}/realms/gateway-realm/protocol/openid-connect/token
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=urn:ietf:params:oauth:grant-type:token-exchange&subject_token={{exampleToken}}&subject_token_type=urn:ietf:params:oauth:token-type:access_token&requested_token_type=urn:ietf:params:oauth:token-type:access_token&client_id=gateway-client&client_secret=gateway-client-secret
+
+###
+
+### ═══════════════════════════════════════════════════════════════════════════
+### 6. INFRASTRUCTURE HEALTH CHECKS
+### ═══════════════════════════════════════════════════════════════════════════
+
+### 6a. Keycloak health
+GET {{keycloak}}/health/ready
+
+###
+
+### 6b. Eureka dashboard
+GET http://localhost:8761
+
+###
+
+### 6c. API Gateway health
+GET {{gateway}}/actuator/health
+
+###
+
+### ═══════════════════════════════════════════════════════════════════════════
+### 7. CHAINED FLOW — Full round-trip: Client → Gateway → Service → Service2
+### ═══════════════════════════════════════════════════════════════════════════
+#
+# This demonstrates the complete token exchange chain:
+#
+#   ① Client sends example-service-realm token to Gateway
+#   ② Gateway exchanges it → gateway-realm token
+#   ③ Gateway forwards to example-service (with gateway-realm token)
+#   ④ example-service calls example-service2 (same gateway-realm token forwarded)
+#   ⑤ example-service2 validates the gateway-realm token and responds
+#   ⑥ example-service assembles a combined response and returns to client
+#
+# The /api/protected/chained endpoint makes this hop chain visible.
+# You will see three integration steps in the response:
+#   "gatewayStep"  → info from token exchange at gateway
+#   "service1Step" → token info seen by example-service
+#   "service2Step" → token info seen by example-service2
+#
+# Note: Use the same testuser token as in step 3. The exchange is automatic.
+
+### 7a. Chained call via Gateway (full round-trip)
+# Expected: response with 3 steps; all showing gateway-realm as issuer
+GET {{gateway}}/api/protected/chained
+Authorization: Bearer {{exampleToken}}
+
+###
+
+### ═══════════════════════════════════════════════════════════════════════════
+### 8. DIRECT ACCESS TO example-service2 VIA GATEWAY
+### ═══════════════════════════════════════════════════════════════════════════
+#
+# The Gateway also exposes a direct route to example-service2 under /api/service2/.
+# The token exchange filter is applied here too — so clients still send
+# their example-service-realm token and the gateway exchanges it automatically.
+#
+# Path rewrite: /api/service2/internal/hello → /api/internal/hello (StripPrefix)
+
+### 8a. Public info from service2 via Gateway (no auth required)
+GET {{gateway}}/api/service2/public/info
+
+###
+
+### 8b. Internal hello from service2 via Gateway (token exchange applied)
+GET {{gateway}}/api/service2/internal/hello
+Authorization: Bearer {{exampleToken}}
+
+###
+
+### 8c. Full token claims from service2 via Gateway
+GET {{gateway}}/api/service2/internal/token-info
+Authorization: Bearer {{exampleToken}}
+
+###
+
+### ═══════════════════════════════════════════════════════════════════════════
+### 9. DIRECT ACCESS TO example-service2 (NO GATEWAY — shows auth enforcement)
+### ═══════════════════════════════════════════════════════════════════════════
+#
+# example-service2 listens on port 8082 but in a real deployment it would
+# not be publicly exposed (only internal Docker network access).
+#
+# These calls show what happens when you try to bypass the gateway:
+
+### 9a. Public info (no token required — works fine)
+GET {{service2}}/api/public/info
+
+###
+
+### 9b. Internal endpoint with ORIGINAL token (example-service-realm) — FAILS (401)
+# example-service2 only trusts gateway-realm tokens.
+# Sending an example-service-realm token directly should return 401.
+GET {{service2}}/api/internal/hello
+Authorization: Bearer {{exampleToken}}
+
+###
+
+### 9c. Internal endpoint with EXCHANGED token — WORKS
+# After manual exchange (step 5a), paste the exchanged gateway-realm token here.
+@gatewayToken = PASTE_EXCHANGED_GATEWAY_TOKEN_HERE
+GET {{service2}}/api/internal/hello
+Authorization: Bearer {{gatewayToken}}
+
+###
+
+###
+
+### 6d. Example Service health
+GET {{service}}/actuator/health
+
+###
+
+### 6e. Example Service Swagger UI
+GET {{service}}/swagger-ui.html
+
+###
+
+### 6f. API Gateway routes info
+GET {{gateway}}/actuator/gateway/routes
+
+###
