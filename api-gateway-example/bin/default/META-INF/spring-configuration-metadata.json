@@ -36,6 +36,12 @@
       "type": "java.lang.String",
       "description": "The realm where the token exchange happens. The incoming subject token (from example-service-realm) is exchanged for a new access token issued by THIS realm (gateway-realm).",
       "sourceType": "br.com.lrs.gateway.config.TokenExchangeProperties"
+    },
+    {
+      "name": "keycloak.token-exchange.subject-issuer",
+      "type": "java.lang.String",
+      "description": "Alias of the Identity Provider in the target realm that trusts the source realm. For this demo, it is the same as the source realm name.",
+      "sourceType": "br.com.lrs.gateway.config.TokenExchangeProperties"
     }
   ],
   "hints": []

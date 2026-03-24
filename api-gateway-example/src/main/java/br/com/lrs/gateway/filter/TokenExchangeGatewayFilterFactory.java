@@ -17,24 +17,27 @@ import java.util.Map;
  * Custom Spring Cloud Gateway filter that performs Keycloak Token Exchange.
  *
  * Flow:
- *   1. Extracts the Bearer token from the incoming request (e.g., from example-service-realm)
- *   2. Calls Keycloak's token exchange endpoint to get a new token (gateway-realm)
- *   3. Replaces the Authorization header in the outgoing request with the new token
- *   4. The downstream service (example-service) validates the new token
+ * 1. Extracts the Bearer token from the incoming request (e.g., from
+ * example-service-realm)
+ * 2. Calls Keycloak's token exchange endpoint to get a new token
+ * (gateway-realm)
+ * 3. Replaces the Authorization header in the outgoing request with the new
+ * token
+ * 4. The downstream service (example-service) validates the new token
  *
  * This filter is registered as "TokenExchange" in application.yml routes.
  * Usage in YAML:
- *   filters:
- *     - TokenExchange
+ * filters:
+ * - TokenExchange
  *
  * Keycloak Token Exchange grant type:
- *   POST /realms/{realm}/protocol/openid-connect/token
- *   grant_type=urn:ietf:params:oauth:grant-type:token-exchange
- *   subject_token={incoming_token}
- *   subject_token_type=urn:ietf:params:oauth:token-type:access_token
- *   requested_token_type=urn:ietf:params:oauth:token-type:access_token
- *   client_id={gateway-client}
- *   client_secret={secret}
+ * POST /realms/{realm}/protocol/openid-connect/token
+ * grant_type=urn:ietf:params:oauth:grant-type:token-exchange
+ * subject_token={incoming_token}
+ * subject_token_type=urn:ietf:params:oauth:token-type:access_token
+ * requested_token_type=urn:ietf:params:oauth:token-type:access_token
+ * client_id={gateway-client}
+ * client_secret={secret}
  */
 @Slf4j
 @Component
@@ -62,7 +65,8 @@ public class TokenExchangeGatewayFilterFactory
 
             String authHeader = exchange.getRequest().getHeaders().getFirst(HttpHeaders.AUTHORIZATION);
 
-            // No Bearer token present — let the downstream service handle it (it will reject unauthorized)
+            // No Bearer token present — let the downstream service handle it (it will
+            // reject unauthorized)
             if (authHeader == null || !authHeader.startsWith("Bearer ")) {
                 log.debug("No Bearer token found — skipping token exchange");
                 return chain.filter(exchange);
@@ -82,7 +86,8 @@ public class TokenExchangeGatewayFilterFactory
                     })
                     .onErrorResume(e -> {
                         // Graceful degradation: if exchange fails, forward with original token.
-                        // The downstream service will reject it if it doesn't accept the original realm.
+                        // The downstream service will reject it if it doesn't accept the original
+                        // realm.
                         log.warn("Token exchange failed — forwarding original token. Reason: {}", e.getMessage());
                         return chain.filter(exchange);
                     });
@@ -99,16 +104,22 @@ public class TokenExchangeGatewayFilterFactory
 
         log.debug("Calling token exchange at: {}", tokenUrl);
 
+        var formData = BodyInserters
+                .fromFormData("grant_type", "urn:ietf:params:oauth:grant-type:token-exchange")
+                .with("subject_token", subjectToken)
+                .with("subject_token_type", "urn:ietf:params:oauth:token-type:access_token")
+                .with("requested_token_type", "urn:ietf:params:oauth:token-type:access_token")
+                .with("client_id", properties.getClientId())
+                .with("client_secret", properties.getClientSecret());
+
+        if (properties.getSubjectIssuer() != null && !properties.getSubjectIssuer().isBlank()) {
+            formData = formData.with("subject_issuer", properties.getSubjectIssuer());
+        }
+
         return webClient.post()
                 .uri(tokenUrl)
                 .contentType(MediaType.APPLICATION_FORM_URLENCODED)
-                .body(BodyInserters
-                        .fromFormData("grant_type", "urn:ietf:params:oauth:grant-type:token-exchange")
-                        .with("subject_token", subjectToken)
-                        .with("subject_token_type", "urn:ietf:params:oauth:token-type:access_token")
-                        .with("requested_token_type", "urn:ietf:params:oauth:token-type:access_token")
-                        .with("client_id", properties.getClientId())
-                        .with("client_secret", properties.getClientSecret()))
+                .body(formData)
                 .retrieve()
                 .bodyToMono(Map.class)
                 .map(response -> {
@@ -124,7 +135,8 @@ public class TokenExchangeGatewayFilterFactory
 
     /**
      * Per-route configuration class.
-     * Currently empty — can be extended to support per-route target realm overrides.
+     * Currently empty — can be extended to support per-route target realm
+     * overrides.
      */
     public static class Config {
         // Future: private String targetRealm;

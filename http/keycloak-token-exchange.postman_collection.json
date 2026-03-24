@@ -56,6 +56,10 @@
               {
                 "key": "Content-Type",
                 "value": "application/x-www-form-urlencoded"
+              },
+              {
+                "key": "Host",
+                "value": "keycloak:8080"
               }
             ],
             "body": {
@@ -156,6 +160,10 @@
               {
                 "key": "Content-Type",
                 "value": "application/x-www-form-urlencoded"
+              },
+              {
+                "key": "Host",
+                "value": "keycloak:8080"
               }
             ],
             "body": {
@@ -169,6 +177,11 @@
                 {
                   "key": "subject_token",
                   "value": "{{exampleToken}}",
+                  "type": "text"
+                },
+                {
+                  "key": "subject_issuer",
+                  "value": "example-service-realm",
                   "type": "text"
                 },
                 {

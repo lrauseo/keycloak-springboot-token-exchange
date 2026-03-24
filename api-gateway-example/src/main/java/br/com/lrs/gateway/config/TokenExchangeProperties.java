@@ -31,4 +31,11 @@ public class TokenExchangeProperties {
 
     /** Client secret for the exchange client */
     private String clientSecret = "gateway-client-secret";
+
+    /**
+     * Alias of the Identity Provider in the target realm that trusts the source
+     * realm.
+     * For this demo, it is the same as the source realm name.
+     */
+    private String subjectIssuer = "example-service-realm";
 }

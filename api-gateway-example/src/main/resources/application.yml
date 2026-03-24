@@ -114,6 +114,7 @@ keycloak:
     realm: ${KEYCLOAK_GATEWAY_REALM:gateway-realm}
     client-id: ${KEYCLOAK_CLIENT_ID:gateway-client}
     client-secret: ${KEYCLOAK_CLIENT_SECRET:gateway-client-secret}
+    subject-issuer: ${KEYCLOAK_SUBJECT_ISSUER:example-service-realm}
 
 # ─── Actuator ──────────────────────────────────────────────────────────────────
 management:
