@@ -1,0 +1,358 @@
+{
+  "info": {
+    "name": "Keycloak Spring Boot Token Exchange",
+    "description": "Postman collection for testing the Keycloak token exchange flow across gateway, example-service, and example-service2.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "keycloak", "value": "http://localhost:8180" },
+    { "key": "gateway", "value": "http://localhost:8081" },
+    { "key": "service", "value": "http://localhost:8080" },
+    { "key": "service2", "value": "http://localhost:8082" },
+    { "key": "realm", "value": "example-service-realm" },
+    { "key": "clientId", "value": "example-service-client" },
+    { "key": "clientSecret", "value": "example-service-secret" },
+    { "key": "exampleToken", "value": "" },
+    { "key": "gatewayToken", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "1. Public Endpoints",
+      "item": [
+        {
+          "name": "Public hello (direct to service)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{service}}/api/public/hello"
+          }
+        },
+        {
+          "name": "Service info (direct to service)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{service}}/api/public/info"
+          }
+        },
+        {
+          "name": "Public hello via API Gateway",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{gateway}}/api/public/hello"
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Authentication",
+      "item": [
+        {
+          "name": "Get user token from example-service-realm",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                { "key": "username", "value": "testuser", "type": "text" },
+                { "key": "password", "value": "testpass", "type": "text" },
+                { "key": "grant_type", "value": "password", "type": "text" },
+                { "key": "client_id", "value": "{{clientId}}", "type": "text" },
+                { "key": "client_secret", "value": "{{clientSecret}}", "type": "text" }
+              ]
+            },
+            "url": "{{keycloak}}/realms/{{realm}}/protocol/openid-connect/token"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "var json = pm.response.json();",
+                  "if (json.access_token) {",
+                  "  pm.collectionVariables.set('exampleToken', json.access_token);",
+                  "}",
+                  "",
+                  "pm.test('Access token returned', function () {",
+                  "  pm.expect(json.access_token).to.be.a('string').and.not.empty;",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "3. Direct Service Access",
+      "item": [
+        {
+          "name": "Protected hello (direct to service)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{exampleToken}}" }
+            ],
+            "url": "{{service}}/api/protected/hello"
+          }
+        },
+        {
+          "name": "Token introspection (direct)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{exampleToken}}" }
+            ],
+            "url": "{{service}}/api/protected/token-info"
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Via API Gateway",
+      "item": [
+        {
+          "name": "Protected hello via Gateway",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{exampleToken}}" }
+            ],
+            "url": "{{gateway}}/api/protected/hello"
+          }
+        },
+        {
+          "name": "Token info via Gateway (exchanged token)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{exampleToken}}" }
+            ],
+            "url": "{{gateway}}/api/protected/token-info"
+          }
+        }
+      ]
+    },
+    {
+      "name": "5. Manual Token Exchange",
+      "item": [
+        {
+          "name": "Exchange token to gateway-realm",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "grant_type",
+                  "value": "urn:ietf:params:oauth:grant-type:token-exchange",
+                  "type": "text"
+                },
+                {
+                  "key": "subject_token",
+                  "value": "{{exampleToken}}",
+                  "type": "text"
+                },
+                {
+                  "key": "subject_token_type",
+                  "value": "urn:ietf:params:oauth:token-type:access_token",
+                  "type": "text"
+                },
+                {
+                  "key": "requested_token_type",
+                  "value": "urn:ietf:params:oauth:token-type:access_token",
+                  "type": "text"
+                },
+                {
+                  "key": "client_id",
+                  "value": "gateway-client",
+                  "type": "text"
+                },
+                {
+                  "key": "client_secret",
+                  "value": "gateway-client-secret",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": "{{keycloak}}/realms/gateway-realm/protocol/openid-connect/token"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "var json = pm.response.json();",
+                  "if (json.access_token) {",
+                  "  pm.collectionVariables.set('gatewayToken', json.access_token);",
+                  "}",
+                  "",
+                  "pm.test('Gateway token returned', function () {",
+                  "  pm.expect(json.access_token).to.be.a('string').and.not.empty;",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "6. Infrastructure Health Checks",
+      "item": [
+        {
+          "name": "Keycloak health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{keycloak}}/health/ready"
+          }
+        },
+        {
+          "name": "Eureka dashboard",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "http://localhost:8761"
+          }
+        },
+        {
+          "name": "API Gateway health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{gateway}}/actuator/health"
+          }
+        },
+        {
+          "name": "Example Service health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{service}}/actuator/health"
+          }
+        },
+        {
+          "name": "Example Service Swagger UI",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{service}}/swagger-ui.html"
+          }
+        },
+        {
+          "name": "API Gateway routes info",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{gateway}}/actuator/gateway/routes"
+          }
+        }
+      ]
+    },
+    {
+      "name": "7. Chained Flow",
+      "item": [
+        {
+          "name": "Chained call via Gateway",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{exampleToken}}" }
+            ],
+            "url": "{{gateway}}/api/protected/chained"
+          }
+        }
+      ]
+    },
+    {
+      "name": "8. Service2 via Gateway",
+      "item": [
+        {
+          "name": "Public info from service2 via Gateway",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{gateway}}/api/service2/public/info"
+          }
+        },
+        {
+          "name": "Internal hello from service2 via Gateway",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{exampleToken}}" }
+            ],
+            "url": "{{gateway}}/api/service2/internal/hello"
+          }
+        },
+        {
+          "name": "Token info from service2 via Gateway",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{exampleToken}}" }
+            ],
+            "url": "{{gateway}}/api/service2/internal/token-info"
+          }
+        }
+      ]
+    },
+    {
+      "name": "9. Direct Service2 Access",
+      "item": [
+        {
+          "name": "Public info (direct service2)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{service2}}/api/public/info"
+          }
+        },
+        {
+          "name": "Internal hello with original token (expected 401)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{exampleToken}}" }
+            ],
+            "url": "{{service2}}/api/internal/hello"
+          }
+        },
+        {
+          "name": "Internal hello with exchanged token",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{gatewayToken}}" }
+            ],
+            "url": "{{service2}}/api/internal/hello"
+          }
+        }
+      ]
+    }
+  ]
+}
